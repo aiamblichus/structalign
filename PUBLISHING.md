@@ -79,7 +79,7 @@ npm version major   # 0.2.0 → 1.0.0
 
 Choose a different name in `package.json`:
 ```json
-"name": "@yourusername/baml-sap-ts"
+"name": "@yourusername/structalign"
 ```
 
 Then publish with:

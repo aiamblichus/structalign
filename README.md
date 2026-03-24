@@ -1,11 +1,11 @@
-# baml-sap-ts
+# structalign
 
-[![npm version](https://badge.fury.io/js/baml-sap-ts.svg)](https://www.npmjs.com/package/baml-sap-ts)
+[![npm version](https://badge.fury.io/js/structalign.svg)](https://www.npmjs.com/package/structalign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A TypeScript implementation of BAML's **Schema-Aligned Parsing (SAP)** algorithm using [TypeBox](https://github.com/sinclairzx81/typebox) for schema definition.
 
-> **Note:** This is an unofficial community migration of BAML's core SAP algorithm. For the official BAML project, visit [boundaryml.com](https://www.boundaryml.com).
+> **Note:** StructAlign (formerly `baml-sap-ts`) is an unofficial community migration of BAML's core SAP algorithm. For the official BAML project, visit [boundaryml.com](https://www.boundaryml.com).
 
 ## Overview
 
@@ -35,14 +35,14 @@ SAP is BAML's algorithm for reliably extracting structured outputs from LLMs:
 ## Installation
 
 ```bash
-npm install baml-sap-ts @sinclair/typebox
+npm install structalign @sinclair/typebox
 ```
 
 ## Quick Start
 
 ````typescript
 import { Type } from "@sinclair/typebox";
-import { createPromptWithSchema, parseResponse } from "baml-sap-ts";
+import { createPromptWithSchema, parseResponse } from "structalign";
 
 // 1. Define your schema
 const UserSchema = Type.Object({
@@ -328,8 +328,8 @@ interface ParseOptions {
 
 ```bash
 # Clone the repository
-git clone https://github.com/aiamblichus/baml-sap-ts.git
-cd baml-sap-ts
+git clone https://github.com/aiamblichus/structalign.git
+cd structalign
 
 # Install dependencies
 npm install

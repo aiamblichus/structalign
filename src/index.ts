@@ -9,7 +9,7 @@
  * Usage:
  * ```typescript
  * import { Type } from '@sinclair/typebox';
- * import { createPromptWithSchema, parseResponse } from 'baml-sap-ts';
+ * import { createPromptWithSchema, parseResponse } from 'structalign';
  *
  * const schema = Type.Object({
  *   name: Type.String(),

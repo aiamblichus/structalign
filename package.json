@@ -1,7 +1,7 @@
 {
-  "name": "baml-sap-ts",
+  "name": "structalign",
   "version": "0.1.2",
-  "description": "TypeScript implementation of BAML's Schema-Aligned Parsing (SAP) algorithm using TypeBox",
+  "description": "StructAlign: TypeScript implementation of schema-aligned parsing (SAP) using TypeBox",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -64,12 +64,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aiamblichus/baml-sap-ts.git"
+    "url": "git+https://github.com/aiamblichus/structalign.git"
   },
   "bugs": {
-    "url": "https://github.com/aiamblichus/baml-sap-ts/issues"
+    "url": "https://github.com/aiamblichus/structalign/issues"
   },
-  "homepage": "https://github.com/aiamblichus/baml-sap-ts#readme",
+  "homepage": "https://github.com/aiamblichus/structalign#readme",
   "dependencies": {
     "@sinclair/typebox": "^0.34.0"
   },
