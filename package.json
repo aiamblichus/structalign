@@ -41,7 +41,7 @@
     "check:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build",
-    "preversion": "pnpm run check && npm test",
+    "preversion": "pnpm run check && pnpm test",
     "release:patch": "pnpm version patch && git push --follow-tags && pnpm publish",
     "release:minor": "pnpm version minor && git push --follow-tags && pnpm publish",
     "release:major": "pnpm version major && git push --follow-tags && pnpm publish",
