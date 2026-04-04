@@ -35,13 +35,13 @@ SAP is BAML's algorithm for reliably extracting structured outputs from LLMs:
 ## Installation
 
 ```bash
-npm install structalign @sinclair/typebox
+npm install structalign typebox
 ```
 
 ## Quick Start
 
 ````typescript
-import { Type } from "@sinclair/typebox";
+import Type from "typebox";
 import { createPromptWithSchema, parseResponse } from "structalign";
 
 // 1. Define your schema
@@ -195,7 +195,7 @@ console.log(result.value); // { name: "test", age: 25 }
 Normalizes typographic quotes automatically:
 
 ```typescript
-const response = '{“name”: “test”, “age”: 25}';
+const response = "{“name”: “test”, “age”: 25}";
 const result = parseResponse(response, schema);
 console.log(result.meta.fixes); // ['normalized_unicode_quotes']
 console.log(result.value); // { name: "test", age: 25 }

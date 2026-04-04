@@ -6,8 +6,7 @@
  * structured data.
  */
 
-import {
-	Kind,
+import Type, {
 	type TArray,
 	type TBoolean,
 	type TEnum,
@@ -15,7 +14,6 @@ import {
 	type TLiteral,
 	type TNumber,
 	type TObject,
-	type TOptional,
 	type TProperties,
 	type TRecord,
 	type TRef,
@@ -23,7 +21,7 @@ import {
 	type TString,
 	type TTuple,
 	type TUnion,
-} from "@sinclair/typebox";
+} from "typebox";
 
 export interface SchemaRenderOptions {
 	/** Include field descriptions in output */
@@ -43,10 +41,56 @@ const defaultOptions: SchemaRenderOptions = {
 	allowPartials: false,
 };
 
+type LooseSchema = TSchema & Record<string, unknown>;
+
+function asLooseSchema(schema: TSchema): LooseSchema {
+	return schema as LooseSchema;
+}
+
+function getSchemaRef(schema: TSchema): string | undefined {
+	return asLooseSchema(schema).$ref as string | undefined;
+}
+
+function getSchemaAnyOf(schema: TSchema): TSchema[] | undefined {
+	const anyOf = asLooseSchema(schema).anyOf;
+	return Array.isArray(anyOf) ? (anyOf as TSchema[]) : undefined;
+}
+
+function getSchemaDescription(schema: TSchema): string | undefined {
+	const description = asLooseSchema(schema).description;
+	return typeof description === "string" ? description : undefined;
+}
+
+function getNumberConstraint(schema: TSchema, key: string): number | undefined {
+	const value = asLooseSchema(schema)[key];
+	return typeof value === "number" ? value : undefined;
+}
+
+function getStringConstraint(schema: TSchema, key: string): string | undefined {
+	const value = asLooseSchema(schema)[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function getSchemaConst(schema: TSchema): unknown {
+	return asLooseSchema(schema).const;
+}
+
+function getSchemaEnum(schema: TSchema): unknown[] {
+	const value = asLooseSchema(schema).enum;
+	return Array.isArray(value) ? value : [];
+}
+
+function assertTypeBoxSchema(schema: unknown, context: string): asserts schema is TSchema {
+	if (!Type.IsSchema(schema)) {
+		throw new Error(`Expected TypeBox-built schema at ${context}`);
+	}
+}
+
 /**
  * Render a TypeBox schema as prompt instructions
  */
 export function renderSchema(schema: TSchema, options: SchemaRenderOptions = {}): string {
+	assertTypeBoxSchema(schema, "<root>");
 	const opts = { ...defaultOptions, ...options };
 	const visited = new WeakSet<TSchema>();
 
@@ -68,6 +112,8 @@ function renderSchemaInternal(
 	depth: number,
 	visited: WeakSet<TSchema>,
 ): string {
+	assertTypeBoxSchema(schema, `depth:${depth}`);
+
 	// Circular reference / max depth check
 	if (depth > options.maxDepth! || visited.has(schema)) {
 		return "<recursive>";
@@ -78,66 +124,56 @@ function renderSchemaInternal(
 
 	try {
 		// Handle schema references
-		if (schema.$ref) {
-			return `<reference to: ${schema.$ref}>`;
+		const schemaRef = getSchemaRef(schema);
+		if (Type.IsRef(schema) || schemaRef) {
+			return `<reference to: ${schemaRef}>`;
 		}
 
 		// Handle different schema kinds
-		switch (schema[Kind]) {
-			case "Object":
-				return renderObject(schema as TObject, options, depth, visited);
-
-			case "Array":
-				return renderArray(schema as TArray, options, depth, visited);
-
-			case "Union":
-				return renderUnion(schema as TUnion, options, depth, visited);
-
-			case "Intersect":
-				return renderIntersect(schema as TSchema, options, depth, visited);
-
-			case "Optional":
-				return renderOptional(schema as TOptional<TSchema>, options, depth, visited);
-
-			case "Literal":
-				return renderLiteral(schema as TLiteral);
-
-			case "Enum":
-				return renderEnum(schema as TEnum);
-
-			case "String":
-				return renderString(schema as TString);
-
-			case "Number":
-			case "Integer":
-				return renderNumber(schema as TNumber | TInteger);
-
-			case "Boolean":
-				return renderBoolean(schema as TBoolean);
-
-			case "Null":
-				return "null";
-
-			case "Any":
-			case "Unknown":
-				return "any";
-
-			case "Record":
-				return renderRecord(schema as TRecord, options, depth, visited);
-
-			case "Tuple":
-				return renderTuple(schema as TTuple, options, depth, visited);
-
-			case "Ref":
-				return renderRef(schema as TRef);
-
-			default:
-				// Handle primitive types that might not have Kind set
-				if (schema.type) {
-					return renderJsonSchemaType(schema, options, depth, visited);
-				}
-				return "<unknown type>";
+		if (Type.IsObject(schema)) {
+			return renderObject(schema as TObject, options, depth, visited);
 		}
+		if (Type.IsArray(schema)) {
+			return renderArray(schema as TArray, options, depth, visited);
+		}
+		if (Type.IsUnion(schema)) {
+			return renderUnion(schema as TUnion, options, depth, visited);
+		}
+		if (Type.IsIntersect(schema)) {
+			return renderIntersect(schema, options, depth, visited);
+		}
+		if (Type.IsLiteral(schema)) {
+			return renderLiteral(schema as TLiteral);
+		}
+		if (Type.IsEnum(schema)) {
+			return renderEnum(schema as TEnum);
+		}
+		if (Type.IsString(schema)) {
+			return renderString(schema as TString);
+		}
+		if (Type.IsNumber(schema) || Type.IsInteger(schema)) {
+			return renderNumber(schema as TNumber | TInteger);
+		}
+		if (Type.IsBoolean(schema)) {
+			return renderBoolean(schema as TBoolean);
+		}
+		if (Type.IsNull(schema)) {
+			return "null";
+		}
+		if (Type.IsAny(schema) || Type.IsUnknown(schema)) {
+			return "any";
+		}
+		if (Type.IsRecord(schema)) {
+			return renderRecord(schema as TRecord, options, depth, visited);
+		}
+		if (Type.IsTuple(schema)) {
+			return renderTuple(schema as TTuple, options, depth, visited);
+		}
+		if (Type.IsRef(schema)) {
+			return renderRef(schema as TRef);
+		}
+
+		throw new Error(`Unsupported TypeBox schema during rendering at depth ${depth}`);
 	} finally {
 		visited.delete(schema);
 	}
@@ -155,10 +191,8 @@ function renderObject(schema: TObject, options: SchemaRenderOptions, depth: numb
 	const fields = Object.entries(properties).map(([key, propSchema]) => {
 		const isOptional = isOptionalProperty(propSchema);
 		const typeStr = renderSchemaInternal(propSchema, options, depth + 1, visited);
-		const description =
-			options.includeDescriptions && (propSchema as TSchema).description
-				? ` // ${(propSchema as TSchema).description}`
-				: "";
+		const descriptionText = getSchemaDescription(propSchema as TSchema);
+		const description = options.includeDescriptions && descriptionText ? ` // ${descriptionText}` : "";
 
 		return `${indent}"${key}": ${typeStr}${isOptional ? " (optional)" : ""}${description}`;
 	});
@@ -177,7 +211,7 @@ function renderArray(schema: TArray, options: SchemaRenderOptions, depth: number
 }
 
 function renderUnion(schema: TUnion, options: SchemaRenderOptions, depth: number, visited: WeakSet<TSchema>): string {
-	const anyOf = schema.anyOf as TSchema[];
+	const anyOf = (getSchemaAnyOf(schema) ?? []) as TSchema[];
 	if (!anyOf || anyOf.length === 0) {
 		return "any";
 	}
@@ -212,37 +246,20 @@ function renderIntersect(
 	// Merge all object schemas
 	const merged: Record<string, TSchema> = {};
 	for (const subSchema of allOf) {
-		if (subSchema[Kind] === "Object") {
+		if (Type.IsObject(subSchema)) {
 			const props = (subSchema as TObject).properties as TProperties;
 			Object.assign(merged, props);
 		}
 	}
 
 	// Create a merged object schema
-	const mergedSchema: TObject = {
-		[Kind]: "Object",
-		type: "object",
-		properties: merged,
-	} as TObject;
+	const mergedSchema = Type.Object(merged);
 
 	return renderObject(mergedSchema, options, depth, visited);
 }
 
-function renderOptional(
-	schema: TOptional<TSchema>,
-	options: SchemaRenderOptions,
-	depth: number,
-	visited: WeakSet<TSchema>,
-): string {
-	const inner = (schema as any).item as TSchema;
-	if (!inner) {
-		return "any?";
-	}
-	return renderSchemaInternal(inner, options, depth, visited);
-}
-
 function renderLiteral(schema: TLiteral): string {
-	const value = (schema as any).const;
+	const value = getSchemaConst(schema);
 	if (typeof value === "string") {
 		return `"${value}"`;
 	}
@@ -250,7 +267,9 @@ function renderLiteral(schema: TLiteral): string {
 }
 
 function renderEnum(schema: TEnum): string {
-	const values = (schema as any).enum as (string | number)[];
+	const values = getSchemaEnum(schema).filter(
+		(v): v is string | number => typeof v === "string" || typeof v === "number",
+	);
 	if (!values || values.length === 0) {
 		return "<empty enum>";
 	}
@@ -260,18 +279,22 @@ function renderEnum(schema: TEnum): string {
 
 function renderString(schema: TString): string {
 	const constraints: string[] = [];
+	const minLength = getNumberConstraint(schema, "minLength");
+	const maxLength = getNumberConstraint(schema, "maxLength");
+	const pattern = getStringConstraint(schema, "pattern");
+	const format = getStringConstraint(schema, "format");
 
-	if (schema.minLength !== undefined) {
-		constraints.push(`min ${schema.minLength} chars`);
+	if (minLength !== undefined) {
+		constraints.push(`min ${minLength} chars`);
 	}
-	if (schema.maxLength !== undefined) {
-		constraints.push(`max ${schema.maxLength} chars`);
+	if (maxLength !== undefined) {
+		constraints.push(`max ${maxLength} chars`);
 	}
-	if (schema.pattern) {
-		constraints.push(`matches /${schema.pattern}/`);
+	if (pattern) {
+		constraints.push(`matches /${pattern}/`);
 	}
-	if (schema.format) {
-		constraints.push(`format: ${schema.format}`);
+	if (format) {
+		constraints.push(`format: ${format}`);
 	}
 
 	if (constraints.length > 0) {
@@ -281,24 +304,29 @@ function renderString(schema: TString): string {
 }
 
 function renderNumber(schema: TNumber | TInteger): string {
-	const isInt = schema[Kind] === "Integer" || (schema as unknown as TInteger).type === "integer";
+	const isInt = Type.IsInteger(schema);
 	const typeName = isInt ? "integer" : "number";
 	const constraints: string[] = [];
+	const minimum = getNumberConstraint(schema, "minimum");
+	const maximum = getNumberConstraint(schema, "maximum");
+	const exclusiveMinimum = getNumberConstraint(schema, "exclusiveMinimum");
+	const exclusiveMaximum = getNumberConstraint(schema, "exclusiveMaximum");
+	const multipleOf = getNumberConstraint(schema, "multipleOf");
 
-	if (schema.minimum !== undefined) {
-		constraints.push(`>= ${schema.minimum}`);
+	if (minimum !== undefined) {
+		constraints.push(`>= ${minimum}`);
 	}
-	if (schema.maximum !== undefined) {
-		constraints.push(`<= ${schema.maximum}`);
+	if (maximum !== undefined) {
+		constraints.push(`<= ${maximum}`);
 	}
-	if (schema.exclusiveMinimum !== undefined) {
-		constraints.push(`> ${schema.exclusiveMinimum}`);
+	if (exclusiveMinimum !== undefined) {
+		constraints.push(`> ${exclusiveMinimum}`);
 	}
-	if (schema.exclusiveMaximum !== undefined) {
-		constraints.push(`< ${schema.exclusiveMaximum}`);
+	if (exclusiveMaximum !== undefined) {
+		constraints.push(`< ${exclusiveMaximum}`);
 	}
-	if ((schema as TInteger).multipleOf !== undefined) {
-		constraints.push(`multiple of ${(schema as TInteger).multipleOf}`);
+	if (multipleOf !== undefined) {
+		constraints.push(`multiple of ${multipleOf}`);
 	}
 
 	if (constraints.length > 0) {
@@ -343,51 +371,16 @@ function renderRef(schema: TRef): string {
 	return ref ? `<${ref}>` : "<reference>";
 }
 
-function renderJsonSchemaType(
-	schema: any,
-	options: SchemaRenderOptions,
-	depth: number,
-	visited: WeakSet<TSchema>,
-): string {
-	const type = schema.type;
-
-	switch (type) {
-		case "string":
-			return renderString(schema as TString);
-		case "number":
-			return renderNumber(schema as TNumber);
-		case "integer":
-			return renderNumber(schema as TInteger);
-		case "boolean":
-			return "boolean";
-		case "null":
-			return "null";
-		case "array":
-			if (schema.items) {
-				const itemStr = renderSchemaInternal(schema.items, options, depth, visited);
-				return `${itemStr}[]`;
-			}
-			return "any[]";
-		case "object":
-			if (schema.properties) {
-				return renderObject(schema as TObject, options, depth, visited);
-			}
-			return "{}";
-		default:
-			return String(type) || "any";
-	}
-}
-
 function isOptionalProperty(schema: TSchema): boolean {
 	// Check if it's an optional type
-	if (schema[Kind] === "Optional") {
+	if (Type.IsOptional(schema)) {
 		return true;
 	}
 
 	// Check for nullable
-	if (schema.anyOf) {
-		const variants = schema.anyOf as TSchema[];
-		return variants.some((v) => v[Kind] === "Null" || v.type === "null");
+	const variants = getSchemaAnyOf(schema);
+	if (variants) {
+		return variants.some((v) => Type.IsNull(v) || Type.IsUndefined(v));
 	}
 
 	return false;

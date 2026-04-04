@@ -12,8 +12,7 @@
  * Based on BAML's deserializer/coercer
  */
 
-import {
-	Kind,
+import Type, {
 	type Static,
 	type TArray,
 	type TEnum,
@@ -21,16 +20,14 @@ import {
 	type TLiteral,
 	type TNumber,
 	type TObject,
-	type TOptional,
 	type TProperties,
 	type TRecord,
 	type TSchema,
 	type TString,
 	type TTuple,
 	type TUnion,
-	Type,
-} from "@sinclair/typebox";
-import { Value as TypeBoxValue } from "@sinclair/typebox/value";
+} from "typebox";
+import Value from "typebox/value";
 
 export interface CoercionOptions {
 	/** Allow partial objects (for streaming) */
@@ -52,6 +49,50 @@ const defaultOptions: CoercionOptions = {
 	maxDepth: 50,
 	trackCoercions: false,
 };
+
+type LooseSchema = TSchema & Record<string, unknown>;
+
+function asLooseSchema(schema: TSchema): LooseSchema {
+	return schema as LooseSchema;
+}
+
+function getSchemaRef(schema: TSchema): string | undefined {
+	return asLooseSchema(schema).$ref as string | undefined;
+}
+
+function getSchemaAnyOf(schema: TSchema): TSchema[] | undefined {
+	const anyOf = asLooseSchema(schema).anyOf;
+	return Array.isArray(anyOf) ? (anyOf as TSchema[]) : undefined;
+}
+
+function getSchemaDefault(schema: TSchema): unknown {
+	return asLooseSchema(schema).default;
+}
+
+function getNumberConstraint(schema: TSchema, key: string): number | undefined {
+	const value = asLooseSchema(schema)[key];
+	return typeof value === "number" ? value : undefined;
+}
+
+function getStringConstraint(schema: TSchema, key: string): string | undefined {
+	const value = asLooseSchema(schema)[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function getSchemaConst(schema: TSchema): unknown {
+	return asLooseSchema(schema).const;
+}
+
+function getSchemaEnum(schema: TSchema): unknown[] {
+	const value = asLooseSchema(schema).enum;
+	return Array.isArray(value) ? value : [];
+}
+
+function assertTypeBoxSchema(schema: unknown, context: string): asserts schema is TSchema {
+	if (!Type.IsSchema(schema)) {
+		throw new Error(`Expected TypeBox-built schema at ${context}`);
+	}
+}
 
 /**
  * Result of type coercion
@@ -85,6 +126,7 @@ export function coerceValue<T extends TSchema>(
 	options: CoercionOptions = {},
 	path: string = "",
 ): CoercionResult<Static<T>> {
+	assertTypeBoxSchema(schema, path || "<root>");
 	const opts = { ...defaultOptions, ...options };
 	const errors: CoercionError[] = [];
 	const coercions: string[] = [];
@@ -102,6 +144,17 @@ export function coerceValue<T extends TSchema>(
 			expected,
 			received: received ?? String(value),
 		});
+	}
+
+	if (opts.strict) {
+		const validation = validateValue(value, schema);
+		return {
+			value: value as Static<T>,
+			success: validation.valid,
+			errors: validation.errors,
+			coercions: opts.trackCoercions ? [] : undefined,
+			isPartial: opts.allowPartials && !isComplete(value, schema),
+		};
 	}
 
 	const result = coerceInternal(value, schema, opts, path, 0, addCoercion, addError);
@@ -127,6 +180,8 @@ function coerceInternal(
 	addCoercion: (msg: string) => void,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
+	assertTypeBoxSchema(schema, path || "<root>");
+
 	// Depth limit
 	if (depth > options.maxDepth!) {
 		addError("Maximum depth exceeded");
@@ -139,78 +194,56 @@ function coerceInternal(
 	}
 
 	// Handle schema references
-	if (schema.$ref) {
+	const schemaRef = getSchemaRef(schema);
+	if (Type.IsRef(schema) || schemaRef) {
 		// References would need to be resolved from a schema registry
 		// For now, we treat them as 'any'
-		addCoercion(`unresolved reference: ${schema.$ref}`);
+		addCoercion(`unresolved reference: ${schemaRef ?? "unknown"}`);
 		return value;
 	}
 
 	// Handle different schema kinds
-	switch (schema[Kind]) {
-		case "Object":
-			return coerceObject(value, schema as TObject, options, path, depth, addCoercion, addError);
-
-		case "Array":
-			return coerceArray(value, schema as TArray, options, path, depth, addCoercion, addError);
-
-		case "Union":
-			return coerceUnion(value, schema as TUnion, options, path, depth, addCoercion, addError);
-
-		case "Intersect":
-			return coerceIntersect(value, schema as TSchema, options, path, depth, addCoercion, addError);
-
-		case "Optional":
-			return coerceOptional(value, schema as TOptional<TSchema>, options, path, depth, addCoercion, addError);
-
-		case "Literal":
-			return coerceLiteral(value, schema as TLiteral, path, addError);
-
-		case "Enum":
-			return coerceEnum(value, schema as TEnum, path, addCoercion, addError);
-
-		case "String":
-			return coerceString(value, schema as TString, path, addCoercion, addError);
-
-		case "Number":
-		case "Integer":
-			return coerceNumber(value, schema as TNumber | TInteger, path, addCoercion, addError);
-
-		case "Boolean":
-			return coerceBoolean(value, path, addCoercion, addError);
-
-		case "Null":
-			return coerceNull(value, schema, options, path, addCoercion, addError);
-
-		case "Any":
-		case "Unknown":
-			return value;
-
-		case "Record":
-			return coerceRecord(value, schema as TRecord, options, path, depth, addCoercion, addError);
-
-		case "Tuple":
-			return coerceTuple(value, schema as TTuple, options, path, depth, addCoercion, addError);
-
-		case "Ref":
-			// References should be resolved
-			addCoercion(`reference coercion: ${(schema as any).$ref}`);
-			return value;
-
-		default:
-			// Try JSON Schema type coercion
-			if (schema.type) {
-				return coerceJsonSchemaType(value, schema, options, path, depth, addCoercion, addError);
-			}
-
-			// Default: try TypeBox validation
-			try {
-				return TypeBoxValue.Decode(schema, value);
-			} catch {
-				addError(`Unable to coerce to ${schema[Kind] || "unknown type"}`);
-				return value;
-			}
+	if (Type.IsObject(schema)) {
+		return coerceObject(value, schema as TObject, options, path, depth, addCoercion, addError);
 	}
+	if (Type.IsArray(schema)) {
+		return coerceArray(value, schema as TArray, options, path, depth, addCoercion, addError);
+	}
+	if (Type.IsUnion(schema)) {
+		return coerceUnion(value, schema as TUnion, options, path, depth, addCoercion, addError);
+	}
+	if (Type.IsIntersect(schema)) {
+		return coerceIntersect(value, schema, options, path, depth, addCoercion, addError);
+	}
+	if (Type.IsLiteral(schema)) {
+		return coerceLiteral(value, schema as TLiteral, path, addError);
+	}
+	if (Type.IsEnum(schema)) {
+		return coerceEnum(value, schema as TEnum, path, addCoercion, addError);
+	}
+	if (Type.IsString(schema)) {
+		return coerceString(value, schema as TString, path, addCoercion, addError);
+	}
+	if (Type.IsNumber(schema) || Type.IsInteger(schema)) {
+		return coerceNumber(value, schema as TNumber | TInteger, path, addCoercion, addError);
+	}
+	if (Type.IsBoolean(schema)) {
+		return coerceBoolean(value, path, addCoercion, addError);
+	}
+	if (Type.IsNull(schema)) {
+		return coerceNull(value, schema, options, path, addCoercion, addError);
+	}
+	if (Type.IsAny(schema) || Type.IsUnknown(schema)) {
+		return value;
+	}
+	if (Type.IsRecord(schema)) {
+		return coerceRecord(value, schema as TRecord, options, path, depth, addCoercion, addError);
+	}
+	if (Type.IsTuple(schema)) {
+		return coerceTuple(value, schema as TTuple, options, path, depth, addCoercion, addError);
+	}
+
+	throw new Error(`Unsupported TypeBox schema at ${path || "<root>"}: no coercion strategy`);
 }
 
 function coerceObject(
@@ -268,8 +301,9 @@ function coerceObject(
 
 		if (fieldValue === undefined) {
 			// Check for default
-			if (options.useDefaults && (propSchema as TSchema).default !== undefined) {
-				result[key] = (propSchema as TSchema).default;
+			const defaultValue = getSchemaDefault(propSchema as TSchema);
+			if (options.useDefaults && defaultValue !== undefined) {
+				result[key] = defaultValue;
 				addCoercion(`used default for ${fieldPath}`);
 			} else if (!isRequired || isOptionalProperty(propSchema as TSchema)) {
 				// Optional field, skip
@@ -356,7 +390,7 @@ function coerceUnion(
 	addCoercion: (msg: string) => void,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
-	const variants = schema.anyOf as TSchema[];
+	const variants = (getSchemaAnyOf(schema) ?? []) as TSchema[];
 
 	// Try each variant and pick the one with fewest errors
 	let bestResult: { value: unknown; errors: number; coercions: number } | null = null;
@@ -434,7 +468,7 @@ function coerceIntersect(
 	// Merge all object schemas and coerce
 	const merged: Record<string, TSchema> = {};
 	for (const subSchema of allOf) {
-		if (subSchema[Kind] === "Object") {
+		if (Type.IsObject(subSchema)) {
 			const props = (subSchema as TObject).properties as TProperties;
 			Object.assign(merged, props);
 		}
@@ -444,31 +478,13 @@ function coerceIntersect(
 	return coerceObject(value, mergedSchema, options, path, depth, addCoercion, addError);
 }
 
-function coerceOptional(
-	value: unknown,
-	schema: TOptional<TSchema>,
-	options: CoercionOptions,
-	_path: string,
-	depth: number,
-	addCoercion: (msg: string) => void,
-	_addError: (msg: string, exp?: string, rec?: string) => void,
-): unknown {
-	const inner = (schema as any).item as TSchema;
-
-	if (value === null || value === undefined) {
-		return undefined;
-	}
-
-	return coerceInternal(value, inner, options, _path, depth, addCoercion, _addError);
-}
-
 function coerceLiteral(
 	value: unknown,
 	schema: TLiteral,
 	_path: string,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
-	const expected = (schema as any).const;
+	const expected = getSchemaConst(schema);
 
 	if (value === expected) {
 		return value;
@@ -490,7 +506,9 @@ function coerceEnum(
 	addCoercion: (msg: string) => void,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
-	const allowed = (schema as any).enum as (string | number)[];
+	const allowed = getSchemaEnum(schema).filter(
+		(item): item is string | number => typeof item === "string" || typeof item === "number",
+	);
 
 	if (allowed.includes(value as string | number)) {
 		return value;
@@ -517,15 +535,18 @@ function coerceString(
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
 	if (typeof value === "string") {
+		const minLength = getNumberConstraint(schema, "minLength");
+		const maxLength = getNumberConstraint(schema, "maxLength");
+		const pattern = getStringConstraint(schema, "pattern");
 		// Validate constraints
-		if (schema.minLength !== undefined && value.length < schema.minLength) {
-			addError(`String too short (min ${schema.minLength})`, `minLength ${schema.minLength}`, String(value.length));
+		if (minLength !== undefined && value.length < minLength) {
+			addError(`String too short (min ${minLength})`, `minLength ${minLength}`, String(value.length));
 		}
-		if (schema.maxLength !== undefined && value.length > schema.maxLength) {
-			addError(`String too long (max ${schema.maxLength})`, `maxLength ${schema.maxLength}`, String(value.length));
+		if (maxLength !== undefined && value.length > maxLength) {
+			addError(`String too long (max ${maxLength})`, `maxLength ${maxLength}`, String(value.length));
 		}
-		if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
-			addError(`String does not match pattern /${schema.pattern}/`, `pattern ${schema.pattern}`, value);
+		if (pattern && !new RegExp(pattern).test(value)) {
+			addError(`String does not match pattern /${pattern}/`, `pattern ${pattern}`, value);
 		}
 		return value;
 	}
@@ -555,7 +576,7 @@ function coerceNumber(
 	addCoercion: (msg: string) => void,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): unknown {
-	const isInt = schema[Kind] === "Integer" || (schema as unknown as TInteger).type === "integer";
+	const isInt = Type.IsInteger(schema);
 
 	if (typeof value === "number") {
 		let num = value;
@@ -589,32 +610,25 @@ function validateNumber(
 	_path: string,
 	addError: (msg: string, exp?: string, rec?: string) => void,
 ): number {
-	if (schema.minimum !== undefined && num < schema.minimum) {
-		addError(`Number below minimum (${schema.minimum})`, `>= ${schema.minimum}`, String(num));
+	const minimum = getNumberConstraint(schema, "minimum");
+	if (minimum !== undefined && num < minimum) {
+		addError(`Number below minimum (${minimum})`, `>= ${minimum}`, String(num));
 	}
-	if (schema.maximum !== undefined && num > schema.maximum) {
-		addError(`Number above maximum (${schema.maximum})`, `<= ${schema.maximum}`, String(num));
+	const maximum = getNumberConstraint(schema, "maximum");
+	if (maximum !== undefined && num > maximum) {
+		addError(`Number above maximum (${maximum})`, `<= ${maximum}`, String(num));
 	}
-	if (schema.exclusiveMinimum !== undefined && num <= schema.exclusiveMinimum) {
-		addError(
-			`Number not above exclusive minimum (${schema.exclusiveMinimum})`,
-			`> ${schema.exclusiveMinimum}`,
-			String(num),
-		);
+	const exclusiveMinimum = getNumberConstraint(schema, "exclusiveMinimum");
+	if (exclusiveMinimum !== undefined && num <= exclusiveMinimum) {
+		addError(`Number not above exclusive minimum (${exclusiveMinimum})`, `> ${exclusiveMinimum}`, String(num));
 	}
-	if (schema.exclusiveMaximum !== undefined && num >= schema.exclusiveMaximum) {
-		addError(
-			`Number not below exclusive maximum (${schema.exclusiveMaximum})`,
-			`< ${schema.exclusiveMaximum}`,
-			String(num),
-		);
+	const exclusiveMaximum = getNumberConstraint(schema, "exclusiveMaximum");
+	if (exclusiveMaximum !== undefined && num >= exclusiveMaximum) {
+		addError(`Number not below exclusive maximum (${exclusiveMaximum})`, `< ${exclusiveMaximum}`, String(num));
 	}
-	if ((schema as TInteger).multipleOf !== undefined && num % (schema as TInteger).multipleOf! !== 0) {
-		addError(
-			`Number not multiple of ${(schema as TInteger).multipleOf}`,
-			`multiple of ${(schema as TInteger).multipleOf}`,
-			String(num),
-		);
+	const multipleOf = getNumberConstraint(schema, "multipleOf");
+	if (multipleOf !== undefined && num % multipleOf !== 0) {
+		addError(`Number not multiple of ${multipleOf}`, `multiple of ${multipleOf}`, String(num));
 	}
 
 	return num;
@@ -727,8 +741,9 @@ function coerceTuple(
 			result.push(coerceInternal(value[i], items[i], options, itemPath, depth + 1, addCoercion, addError));
 		} else {
 			// Missing element - use default or undefined
-			if (items[i].default !== undefined) {
-				result.push(items[i].default);
+			const defaultValue = getSchemaDefault(items[i]);
+			if (defaultValue !== undefined) {
+				result.push(defaultValue);
 			} else {
 				addError(`Missing tuple element at index ${i}`);
 				result.push(undefined);
@@ -747,98 +762,69 @@ function coerceTuple(
 	return result;
 }
 
-function coerceJsonSchemaType(
-	value: unknown,
-	schema: any,
-	options: CoercionOptions,
-	path: string,
-	depth: number,
-	addCoercion: (msg: string) => void,
-	addError: (msg: string, exp?: string, rec?: string) => void,
-): unknown {
-	const type = schema.type;
-
-	switch (type) {
-		case "string":
-			return coerceString(value, schema as TString, path, addCoercion, addError);
-		case "number":
-			return coerceNumber(value, schema as TNumber, path, addCoercion, addError);
-		case "integer":
-			return coerceNumber(value, schema as TInteger, path, addCoercion, addError);
-		case "boolean":
-			return coerceBoolean(value, path, addCoercion, addError);
-		case "null":
-			return coerceNull(value, schema, options, path, addCoercion, addError);
-		case "array":
-			if (schema.items) {
-				return coerceArray(value, schema as TArray, options, path, depth, addCoercion, addError);
-			}
-			return Array.isArray(value) ? value : [value];
-		case "object":
-			if (schema.properties) {
-				return coerceObject(value, schema as TObject, options, path, depth, addCoercion, addError);
-			}
-			return typeof value === "object" ? value : {};
-		default:
-			return value;
-	}
-}
-
 /**
  * Check if a value can potentially be handled by a schema
  */
 function canHandleValue(value: unknown, schema: TSchema): boolean {
-	if (schema[Kind] === "Any" || schema[Kind] === "Unknown") {
+	if (Type.IsAny(schema) || Type.IsUnknown(schema)) {
 		return true;
 	}
 
 	if (value === null || value === undefined) {
-		return schema[Kind] === "Null" || schema[Kind] === "Optional" || isNullable(schema);
+		return Type.IsNull(schema) || Type.IsOptional(schema) || isNullable(schema);
 	}
 
-	switch (schema[Kind]) {
-		case "String":
-			return typeof value === "string";
-		case "Number":
-			return typeof value === "number";
-		case "Integer":
-			return typeof value === "number" && Number.isInteger(value);
-		case "Boolean":
-			return typeof value === "boolean";
-		case "Object":
-			return typeof value === "object" && value !== null && !Array.isArray(value);
-		case "Array":
-			return Array.isArray(value);
-		case "Literal":
-			return value === (schema as any).const;
-		case "Enum":
-			return ((schema as any).enum as unknown[]).includes(value);
-		case "Union":
-			return (schema.anyOf as TSchema[]).some((s) => canHandleValue(value, s));
-		default:
-			return true;
+	if (Type.IsString(schema)) {
+		return typeof value === "string";
 	}
+	if (Type.IsInteger(schema)) {
+		return typeof value === "number" && Number.isInteger(value);
+	}
+	if (Type.IsNumber(schema) || Type.IsInteger(schema)) {
+		return typeof value === "number";
+	}
+	if (Type.IsBoolean(schema)) {
+		return typeof value === "boolean";
+	}
+	if (Type.IsObject(schema)) {
+		return typeof value === "object" && value !== null && !Array.isArray(value);
+	}
+	if (Type.IsArray(schema)) {
+		return Array.isArray(value);
+	}
+	if (Type.IsLiteral(schema)) {
+		return value === getSchemaConst(schema);
+	}
+	if (Type.IsEnum(schema)) {
+		return getSchemaEnum(schema).includes(value);
+	}
+	if (Type.IsUnion(schema) || getSchemaAnyOf(schema)) {
+		return (getSchemaAnyOf(schema) ?? []).some((s) => canHandleValue(value, s));
+	}
+	return true;
 }
 
 function isNullable(schema: TSchema): boolean {
-	if (schema.anyOf) {
-		return (schema.anyOf as TSchema[]).some((s) => s[Kind] === "Null" || s.type === "null");
+	const anyOf = getSchemaAnyOf(schema);
+	if (anyOf) {
+		return anyOf.some((s) => Type.IsNull(s));
 	}
 	return false;
 }
 
 function isOptionalProperty(schema: TSchema): boolean {
-	if (schema[Kind] === "Optional") {
+	if (Type.IsOptional(schema)) {
 		return true;
 	}
-	if (schema.anyOf) {
-		return (schema.anyOf as TSchema[]).some((s) => s[Kind] === "Null" || s.type === "null" || s.type === "undefined");
+	const anyOf = getSchemaAnyOf(schema);
+	if (anyOf) {
+		return anyOf.some((s) => Type.IsNull(s) || Type.IsUndefined(s));
 	}
 	return false;
 }
 
 function isComplete(value: unknown, schema: TSchema): boolean {
-	if (schema[Kind] === "Object") {
+	if (Type.IsObject(schema)) {
 		if (typeof value !== "object" || value === null) {
 			return false;
 		}
@@ -853,7 +839,7 @@ function isComplete(value: unknown, schema: TSchema): boolean {
 		}
 	}
 
-	if (schema[Kind] === "Array") {
+	if (Type.IsArray(schema)) {
 		if (!Array.isArray(value)) {
 			return false;
 		}
@@ -871,18 +857,21 @@ export function validateValue<T extends TSchema>(
 	value: unknown,
 	schema: T,
 ): { valid: boolean; errors: CoercionError[] } {
+	assertTypeBoxSchema(schema, "<root>");
 	const errors: CoercionError[] = [];
 
 	function addError(path: string, message: string, expected?: string, received?: string) {
 		errors.push({ path, message, expected, received });
 	}
 
-	const valid = TypeBoxValue.Check(schema, value);
+	const valid = Value.Check(schema, value);
 
 	if (!valid) {
-		const iterator = TypeBoxValue.Errors(schema, value);
-		for (const error of iterator) {
-			addError(error.path, error.message, undefined, String(error.value));
+		const typeboxErrors = Value.Errors(schema, value);
+		for (const error of typeboxErrors) {
+			const path = "instancePath" in error ? String(error.instancePath) : "";
+			const invalidValue = Value.Pointer.Get(value, path);
+			addError(path, error.message, undefined, invalidValue === undefined ? undefined : String(invalidValue));
 		}
 	}
 

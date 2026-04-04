@@ -4,7 +4,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { Type } from "@sinclair/typebox";
+import Type from "typebox";
 import {
 	coerceValue,
 	createPromptWithSchema,
@@ -145,6 +145,15 @@ describe("Type Coercer", () => {
 		assert(!result2.success);
 		assert(result2.errors.some((e) => e.message.includes("too long")));
 	});
+
+	it("should not coerce values when strict is true", () => {
+		const schema = Type.Integer();
+		const result = coerceValue("42", schema, { strict: true });
+
+		assert.strictEqual(result.success, false);
+		assert.strictEqual(result.value, "42");
+		assert(result.errors.length > 0);
+	});
 });
 
 describe("Parse Response (Integration)", () => {
@@ -231,6 +240,19 @@ Therefore the output JSON is:
 
 		assert.strictEqual(result.success, true);
 		assert.strictEqual(result.value.count, 42);
+	});
+
+	it("should not coerce types when strict is true", () => {
+		const schema = Type.Object({
+			count: Type.Integer(),
+		});
+
+		const response = '{"count": "42"}';
+		const result = parseResponse(response, schema, { strict: true });
+
+		assert.strictEqual(result.success, false);
+		assert(result.errors.length > 0);
+		assert(result.errors.some((e) => e.path === "/count"));
 	});
 
 	it("should parse smart-quoted JSON in markdown blocks", () => {

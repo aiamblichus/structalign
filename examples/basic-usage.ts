@@ -7,7 +7,7 @@
  * 3. Handling chain-of-thought reasoning
  */
 
-import { Type } from '@sinclair/typebox';
+import Type from 'typebox';
 import {
   createPromptWithSchema,
   parseResponse,

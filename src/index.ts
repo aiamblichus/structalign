@@ -8,7 +8,7 @@
  *
  * Usage:
  * ```typescript
- * import { Type } from '@sinclair/typebox';
+ * import Type from 'typebox';
  * import { createPromptWithSchema, parseResponse } from 'structalign';
  *
  * const schema = Type.Object({
@@ -32,7 +32,7 @@
  * ```
  */
 
-import type { Static, TSchema } from "@sinclair/typebox";
+import type { Static, TSchema } from "typebox";
 import {
 	type ExtractionOptions,
 	type ExtractionResult,
