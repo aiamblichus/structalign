@@ -1,6 +1,6 @@
 # structalign
 
-[![pnpm version](https://badge.fury.io/js/structalign.svg)](https://www.pnpmjs.com/package/structalign)
+[![npm version](https://badge.fury.io/js/structalign.svg)](https://www.npmjs.com/package/structalign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A TypeScript implementation of BAML's **Schema-Aligned Parsing (SAP)** algorithm using [TypeBox](https://github.com/sinclairzx81/typebox) for schema definition.
@@ -265,7 +265,7 @@ interface ParseOptions {
   allowFixes?: boolean; // Fix malformed JSON (default: true)
   allowAsString?: boolean; // Return string if all fails (default: true)
   findAllJsonObjects?: boolean; // Find multiple JSON objects (default: true)
-  normalizeUnicodeQuotes?: boolean; // Normalize “ ” ‘ ’ to standard quotes (default: true)
+  normalizeUnicodeQuotes?: boolean; // Normalize “ “ ‘ ‘ to standard quotes (default: true)
   maxDepth?: number; // Max parsing depth (default: 100)
 
   // Coercion options
@@ -360,7 +360,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT © [Your Name](https://github.com/yourusername)
+MIT © [aiamblichus](https://github.com/aiamblichus)
 
 ## Acknowledgments
 
