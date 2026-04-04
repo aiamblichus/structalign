@@ -425,6 +425,21 @@ function applyJsonFixes(text: string): string {
 	// Remove trailing commas before } or ]
 	fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
 
+	// Fix missing commas between properties - handles values followed by newline and next property key
+	// This handles: "string"\n  "key": , 42\n  "key": , true\n  "key": , ]\n  "key": , }\n  "key":
+	fixed = fixed.replace(/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s*)(\n\s*)(")/g, (match, p1, p2, p3, p4, offset, string) => {
+		// Check if what follows looks like a JSON property key (identifier followed by ":)
+		const after = string.slice(offset + match.length - 1);
+		// If what follows looks like a JSON key (": following), add the comma
+		if (/^[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:/.test(after)) {
+			return `${p1},${p2}${p3}${p4}`;
+		}
+		return match;
+	});
+	// Also fix the simpler case: value  "key": (no newline, just whitespace)
+	// Handles: "value"  "key": , 42  "key": , ]  "key": , }  "key":
+	fixed = fixed.replace(/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s+)("[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:)/g, '$1,$2$3');
+
 	// Fix single quotes to double quotes (carefully)
 	// Only fix property keys and simple string values, not content inside strings
 	fixed = fixed.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');

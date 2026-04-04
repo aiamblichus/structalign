@@ -353,3 +353,103 @@ describe("Complex Schemas", () => {
 		assert.strictEqual(result.value.b, 2);
 	});
 });
+
+// Additional tests for missing comma fixes
+describe("Missing Comma Fixes", () => {
+	it("should fix missing commas between properties with newline", () => {
+		const malformed = '{"summary": "test value."\n  "keywords": ["a", "b"]}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { summary: "test value.", keywords: ["a", "b"] });
+	});
+
+	it("should fix missing commas between properties on same line", () => {
+		const malformed = '{"a": "value"  "b": "value2"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { a: "value", b: "value2" });
+	});
+
+	it("should fix multiple missing commas in same object", () => {
+		const malformed = '{"a": "value"\n  "b": "value2"\n  "c": "value3"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { a: "value", b: "value2", c: "value3" });
+	});
+
+	it("should fix missing comma after number value", () => {
+		const malformed = '{"count": 42\n  "name": "test"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { count: 42, name: "test" });
+	});
+
+	it("should fix missing comma after boolean value", () => {
+		const malformed = '{"active": true\n  "name": "test"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { active: true, name: "test" });
+	});
+
+	it("should fix missing comma after array value", () => {
+		const malformed = '{"items": [1, 2]\n  "name": "test"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { items: [1, 2], name: "test" });
+	});
+
+	it("should not add comma inside string values with quotes", () => {
+		// This should NOT add a comma because "next" is not followed by :
+		const json = '{"text": "She said \\"hello\\"  and then left"}';
+		const result = extractJson(json);
+
+		// The regex should NOT match this since "and" is not a property key
+		assert.deepStrictEqual(result.value, { text: 'She said "hello"  and then left' });
+	});
+
+	it("should fix missing comma in deeply nested objects", () => {
+		const malformed = '{"outer": {"inner": "value"\n  "num": 123}\n  "other": "test"}';
+		const result = extractJson(malformed);
+
+		assert.deepStrictEqual(result.value, { outer: { inner: "value", num: 123 }, other: "test" });
+	});
+
+	it("should work with default parseResponse options (no special flags needed)", () => {
+		const schema = Type.Object({
+			name: Type.String(),
+			value: Type.Number(),
+		});
+
+		// Missing comma after "test"
+		const response = '{"name": "test"\n  "value": 42}';
+
+		// No options passed - should work with defaults
+		const result = parseResponse(response, schema);
+
+		assert.strictEqual(result.success, true);
+		assert.deepStrictEqual(result.value, { name: "test", value: 42 });
+	});
+
+	it("should parse complex schema with missing comma (original user case)", () => {
+		const SummarizeSchema = Type.Object({
+			summary: Type.String(),
+			keywords: Type.Array(Type.String()),
+			category: Type.Union([
+				Type.Literal("article"),
+				Type.Literal("documentation"),
+				Type.Literal("research"),
+				Type.Literal("news"),
+			]),
+		});
+
+		// Missing comma after summary field (the original user case)
+		const response = '{\n  "summary": "The article discusses AI disrupting industries.",\n  "keywords": [\n    "AI",\n    "disruption"\n  ],\n  "category": "article"\n}';
+
+		const result = parseResponse(response, SummarizeSchema);
+
+		assert.strictEqual(result.success, true);
+		assert.strictEqual(result.value.summary, "The article discusses AI disrupting industries.");
+		assert.deepStrictEqual(result.value.keywords, ["AI", "disruption"]);
+		assert.strictEqual(result.value.category, "article");
+	});
+});
