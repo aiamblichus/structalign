@@ -1,6 +1,6 @@
 # structalign
 
-[![npm version](https://badge.fury.io/js/structalign.svg)](https://www.npmjs.com/package/structalign)
+[![pnpm version](https://badge.fury.io/js/structalign.svg)](https://www.pnpmjs.com/package/structalign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A TypeScript implementation of BAML's **Schema-Aligned Parsing (SAP)** algorithm using [TypeBox](https://github.com/sinclairzx81/typebox) for schema definition.
@@ -35,7 +35,7 @@ SAP is BAML's algorithm for reliably extracting structured outputs from LLMs:
 ## Installation
 
 ```bash
-npm install structalign typebox
+pnpm add structalign
 ```
 
 ## Quick Start
@@ -332,20 +332,20 @@ git clone https://github.com/aiamblichus/structalign.git
 cd structalign
 
 # Install dependencies
-npm install
+pnpm install
 
 # Build
-npm run build
+pnpm run build
 
 # Run tests
-npm test
+pnpm test
 
 # Run example
-npm run example
+pnpm run example
 
 # Lint and format
-npm run check
-npm run check:fix
+pnpm run check
+pnpm run check:fix
 ```
 
 ## Contributing
