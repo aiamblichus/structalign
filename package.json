@@ -1,6 +1,6 @@
 {
   "name": "structalign",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "StructAlign: TypeScript implementation of schema-aligned parsing (SAP) using TypeBox",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

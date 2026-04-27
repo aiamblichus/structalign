@@ -205,6 +205,27 @@ Therefore the output JSON is:
 		assert.strictEqual(result.meta.chainOfThoughtFiltered, true);
 	});
 
+	it("should parse fenced JSON when body contains 'answer:' and 'therefore' (regression)", () => {
+		const schema = Type.Object({
+			commentary: Type.String(),
+		});
+
+		// CoT is enabled so the filter runs; the fence must win over in-body "answer:".
+		const response = [
+			"Let me think about this.\n",
+			"```json",
+			'{"commentary": "<p>Goodhart. Therefore, the answer: when a measure becomes a target.</p>"}',
+			"```",
+		].join("\n");
+
+		const result = parseResponse(response, schema);
+
+		assert.strictEqual(result.success, true);
+		const commentary = (result.value as { commentary: string }).commentary;
+		assert(commentary.toLowerCase().includes("therefore"));
+		assert.strictEqual(result.meta.chainOfThoughtFiltered, true);
+	});
+
 	it("should handle partial responses", () => {
 		const schema = Type.Object({
 			items: Type.Array(Type.String()),
@@ -277,6 +298,13 @@ describe("Chain-of-Thought Detection", () => {
 
 		const simple = '{"answer": "yes"}';
 		assert.strictEqual(hasChainOfThought(simple), false);
+	});
+
+	it("should not treat 'therefore' in JSON/HTML as chain-of-thought (false positive)", () => {
+		// Regress: common words in large structured payloads used to trip CoT+filter
+		const likeChapterJson =
+			'```json\n{"commentary": "<p>Goodhart. Therefore, the measure gamed."}\n```';
+		assert.strictEqual(hasChainOfThought(likeChapterJson), false);
 	});
 
 	it("should filter chain-of-thought", () => {

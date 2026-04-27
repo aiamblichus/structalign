@@ -486,25 +486,50 @@ function tryExtractPartialJson(text: string): unknown | null {
 /**
  * Filter out chain-of-thought reasoning text
  * Returns the text that appears after reasoning markers
+ *
+ * Important: pattern order and specificity matter. We must not match prose inside
+ * the final JSON (e.g. "therefore" or "answer:" in a string) before a ```json
+ * fence. Therefore:
+ * 1) Prefer an explicit ```json code fence (first occurrence).
+ * 2) Then try a small set of high-specificity “preamble + colon” patterns.
+ * 3) Do not use a bare `answer:` submatch — that appears in normal text/HTML.
+ * 4) Fall back to the first `{` for unfenced single-object output.
  */
 export function filterChainOfThought(text: string): string {
-	// Common patterns that indicate the start of actual output
-	const patterns = [
+	// 1) Explicit JSON fence: unambiguous, wins over any substring inside the payload
+	const jsonFence = text.match(/```\s*json\s*\n?/i);
+	if (jsonFence && jsonFence.index !== undefined) {
+		return text.slice(jsonFence.index).trim();
+	}
+
+	// 2) Phrases that usually introduce structured output in model preambles
+	const preamblePatterns: RegExp[] = [
 		/here is the json[\s\S]*?:\s*/i,
 		/output json[\s\S]*?:\s*/i,
 		/therefore the output json is[\s\S]*?:\s*/i,
 		/final answer[\s\S]*?:\s*/i,
-		/answer:[\s\S]*?\n\s*/i,
-		/```json\s*/,
-		/\{[\s\S]*/, // First opening brace
 	];
 
-	for (const pattern of patterns) {
+	for (const pattern of preamblePatterns) {
 		const match = text.match(pattern);
-		if (match) {
-			const index = match.index ?? 0;
-			return text.substring(index).trim();
+		if (match && match.index !== undefined) {
+			return text.slice(match.index).trim();
 		}
+	}
+
+	// 3) "Answer:" only as a *line-start* block header (avoids "The answer: …" in prose)
+	//    …\nanswer:\n or start-of-text answer:\n, then a newline so JSON can follow
+	const lineHeaderAnswer = text.match(
+		/(?:^|[\r\n])[\t ]*(?:final )?answer:[\t ]*[^\r\n]*(?:[\r\n]+|$)/im,
+	);
+	if (lineHeaderAnswer && lineHeaderAnswer.index !== undefined) {
+		return text.slice(lineHeaderAnswer.index).trim();
+	}
+
+	// 4) First `{` through end of string — for unfenced JSON (fragile if `{` in prose)
+	const brace = text.match(/\{[\s\S]*/);
+	if (brace && brace.index !== undefined) {
+		return text.slice(brace.index).trim();
 	}
 
 	return text;
@@ -538,17 +563,22 @@ export function extractAllCandidates(text: string): string[] {
 }
 
 /**
- * Check if a response looks like it contains chain-of-thought reasoning
+ * Heuristic: does the response look like it prefixed chain-of-thought?
+ *
+ * Kept conservative: patterns like "therefore" or "first, " match large
+ * structured JSON/HTML payloads and spuriously enabled the CoT filter, which
+ * then combined badly with broad `filterChainOfThought` cuts. Prefer explicit
+ * thinking markers; unfenced JSON after short CoT is still handled by
+ * `filterChainOfThought` when this returns true, and `extractJson` can find
+ * objects in mixed text when extraction runs on the full string.
  */
 export function hasChainOfThought(text: string): boolean {
 	const patterns = [
 		/let me think/i,
 		/step by step/i,
-		/first,? /i,
 		/reasoning:/i,
 		/thinking:/i,
 		/analysis:/i,
-		/therefore,? /i,
 		/in conclusion/i,
 	];
 
