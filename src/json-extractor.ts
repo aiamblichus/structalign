@@ -427,18 +427,24 @@ function applyJsonFixes(text: string): string {
 
 	// Fix missing commas between properties - handles values followed by newline and next property key
 	// This handles: "string"\n  "key": , 42\n  "key": , true\n  "key": , ]\n  "key": , }\n  "key":
-	fixed = fixed.replace(/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s*)(\n\s*)(")/g, (match, p1, p2, p3, p4, offset, string) => {
-		// Check if what follows looks like a JSON property key (identifier followed by ":)
-		const after = string.slice(offset + match.length - 1);
-		// If what follows looks like a JSON key (": following), add the comma
-		if (/^[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:/.test(after)) {
-			return `${p1},${p2}${p3}${p4}`;
-		}
-		return match;
-	});
+	fixed = fixed.replace(
+		/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s*)(\n\s*)(")/g,
+		(match, p1, p2, p3, p4, offset, string) => {
+			// Check if what follows looks like a JSON property key (identifier followed by ":)
+			const after = string.slice(offset + match.length - 1);
+			// If what follows looks like a JSON key (": following), add the comma
+			if (/^[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:/.test(after)) {
+				return `${p1},${p2}${p3}${p4}`;
+			}
+			return match;
+		},
+	);
 	// Also fix the simpler case: value  "key": (no newline, just whitespace)
 	// Handles: "value"  "key": , 42  "key": , ]  "key": , }  "key":
-	fixed = fixed.replace(/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s+)("[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:)/g, '$1,$2$3');
+	fixed = fixed.replace(
+		/("[^"]*"|\d+(?:\.\d+)?|true|false|null|\]|\})(\s+)("[a-zA-Z_$][a-zA-Z0-9_$]*"\s*:)/g,
+		"$1,$2$3",
+	);
 
 	// Fix single quotes to double quotes (carefully)
 	// Only fix property keys and simple string values, not content inside strings
@@ -519,9 +525,7 @@ export function filterChainOfThought(text: string): string {
 
 	// 3) "Answer:" only as a *line-start* block header (avoids "The answer: …" in prose)
 	//    …\nanswer:\n or start-of-text answer:\n, then a newline so JSON can follow
-	const lineHeaderAnswer = text.match(
-		/(?:^|[\r\n])[\t ]*(?:final )?answer:[\t ]*[^\r\n]*(?:[\r\n]+|$)/im,
-	);
+	const lineHeaderAnswer = text.match(/(?:^|[\r\n])[\t ]*(?:final )?answer:[\t ]*[^\r\n]*(?:[\r\n]+|$)/im);
 	if (lineHeaderAnswer && lineHeaderAnswer.index !== undefined) {
 		return text.slice(lineHeaderAnswer.index).trim();
 	}
@@ -573,14 +577,7 @@ export function extractAllCandidates(text: string): string[] {
  * objects in mixed text when extraction runs on the full string.
  */
 export function hasChainOfThought(text: string): boolean {
-	const patterns = [
-		/let me think/i,
-		/step by step/i,
-		/reasoning:/i,
-		/thinking:/i,
-		/analysis:/i,
-		/in conclusion/i,
-	];
+	const patterns = [/let me think/i, /step by step/i, /reasoning:/i, /thinking:/i, /analysis:/i, /in conclusion/i];
 
 	return patterns.some((p) => p.test(text));
 }

@@ -63,7 +63,7 @@ export {
 	coerceValue,
 	validateValue,
 } from "./type-coercer.js";
-export type { SchemaRenderOptions, ExtractionOptions };
+export type { ExtractionOptions, SchemaRenderOptions };
 
 /**
  * Main options for parseResponse

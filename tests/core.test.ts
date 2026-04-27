@@ -302,8 +302,7 @@ describe("Chain-of-Thought Detection", () => {
 
 	it("should not treat 'therefore' in JSON/HTML as chain-of-thought (false positive)", () => {
 		// Regress: common words in large structured payloads used to trip CoT+filter
-		const likeChapterJson =
-			'```json\n{"commentary": "<p>Goodhart. Therefore, the measure gamed."}\n```';
+		const likeChapterJson = '```json\n{"commentary": "<p>Goodhart. Therefore, the measure gamed."}\n```';
 		assert.strictEqual(hasChainOfThought(likeChapterJson), false);
 	});
 
@@ -471,7 +470,8 @@ describe("Missing Comma Fixes", () => {
 		});
 
 		// Missing comma after summary field (the original user case)
-		const response = '{\n  "summary": "The article discusses AI disrupting industries.",\n  "keywords": [\n    "AI",\n    "disruption"\n  ],\n  "category": "article"\n}';
+		const response =
+			'{\n  "summary": "The article discusses AI disrupting industries.",\n  "keywords": [\n    "AI",\n    "disruption"\n  ],\n  "category": "article"\n}';
 
 		const result = parseResponse(response, SummarizeSchema);
 
