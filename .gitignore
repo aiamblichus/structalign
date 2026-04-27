@@ -32,5 +32,6 @@ coverage/
 .env
 .env.local
 .env.*.local
+.envrc
 
 .pi/sessions
