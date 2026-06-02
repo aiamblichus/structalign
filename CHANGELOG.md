@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-05-29
+
+### Fixed
+- **Nested JSON extraction**: Replaced non-greedy `\{[\s\S]*?\}` scanning with brace-balanced parsing so mixed text (preamble + unfenced JSON) returns the outer object instead of the first nested `{...}` fragment (e.g. a single array element). When several top-level JSON values appear, the longest valid slice wins.
+- **`extractAllCandidates`**: Uses the same balanced scanner for consistent multi-candidate parsing.
+
 ## [0.2.3] - 2026-04-27
 
 ### Fixed

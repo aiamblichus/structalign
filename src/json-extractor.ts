@@ -319,7 +319,109 @@ function tryExtractFromMarkdown(
 }
 
 /**
- * Try to extract multiple JSON objects from text
+ * Extract a balanced JSON object or array starting at `openIndex`.
+ * Respects string literals and escape sequences so nested `{`/`[` do not truncate early.
+ */
+export function extractBalancedJsonSlice(text: string, openIndex: number): string | null {
+	const open = text[openIndex];
+	if (open !== "{" && open !== "[") {
+		return null;
+	}
+
+	let depth = 0;
+	let inString = false;
+	let isEscaped = false;
+	let quoteChar = '"';
+
+	for (let i = openIndex; i < text.length; i++) {
+		const c = text[i];
+
+		if (inString) {
+			if (isEscaped) {
+				isEscaped = false;
+			} else if (c === "\\") {
+				isEscaped = true;
+			} else if (c === quoteChar) {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (c === '"' || c === "'") {
+			inString = true;
+			quoteChar = c;
+			continue;
+		}
+
+		if (c === "{" || c === "[") {
+			depth++;
+		} else if (c === "}" || c === "]") {
+			depth--;
+			if (depth === 0) {
+				return text.slice(openIndex, i + 1);
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Find all non-overlapping balanced JSON slices in text (outer objects/arrays only).
+ */
+export function findBalancedJsonSlices(text: string): string[] {
+	const slices: string[] = [];
+	let inString = false;
+	let isEscaped = false;
+	let quoteChar = '"';
+
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+
+		if (inString) {
+			if (isEscaped) {
+				isEscaped = false;
+			} else if (c === "\\") {
+				isEscaped = true;
+			} else if (c === quoteChar) {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (c === '"' || c === "'") {
+			inString = true;
+			quoteChar = c;
+			continue;
+		}
+
+		if (c === "{" || c === "[") {
+			const slice = extractBalancedJsonSlice(text, i);
+			if (slice) {
+				slices.push(slice);
+				i += slice.length - 1;
+			}
+		}
+	}
+
+	return slices;
+}
+
+function tryParseJsonSlice(candidate: string): unknown | null {
+	try {
+		return JSON.parse(candidate);
+	} catch {
+		try {
+			return JSON.parse(applyJsonFixes(candidate));
+		} catch {
+			return null;
+		}
+	}
+}
+
+/**
+ * Try to extract JSON from mixed text (e.g. preamble + unfenced object).
+ * Uses brace-balanced scanning so nested objects are not truncated by non-greedy regex.
  */
 function tryExtractMultipleJson(
 	text: string,
@@ -327,43 +429,28 @@ function tryExtractMultipleJson(
 	isDone: boolean,
 	_depth: number,
 ): ExtractionResult | null {
-	const objects: unknown[] = [];
-	const jsonRegex = /\{[\s\S]*?\}|\[[\s\S]*?\]/g;
-
-	let match: RegExpExecArray | null;
-	while (true) {
-		match = jsonRegex.exec(text);
-		if (match === null) break;
-		try {
-			const candidate = match[0];
-			const parsed = JSON.parse(candidate);
-			objects.push(parsed);
-		} catch {
-			// Try with fixes
-			try {
-				const fixed = applyJsonFixes(match[0]);
-				const parsed = JSON.parse(fixed);
-				objects.push(parsed);
-			} catch {
-				// Not valid JSON
-			}
-		}
-	}
-
-	if (objects.length === 0) {
+	const slices = findBalancedJsonSlices(text);
+	if (slices.length === 0) {
 		return null;
 	}
 
-	if (objects.length === 1) {
-		return {
-			value: objects[0],
-			raw: text,
-			isPartial: !isDone,
-		};
+	const parsed: Array<{ value: unknown; slice: string }> = [];
+	for (const slice of slices) {
+		const value = tryParseJsonSlice(slice);
+		if (value !== null) {
+			parsed.push({ value, slice });
+		}
 	}
 
+	if (parsed.length === 0) {
+		return null;
+	}
+
+	// Prefer the longest valid slice — usually the outer document, not a nested fragment.
+	const best = parsed.reduce((a, b) => (b.slice.length > a.slice.length ? b : a));
+
 	return {
-		value: objects,
+		value: best.value,
 		raw: text,
 		isPartial: !isDone,
 	};
@@ -544,19 +631,11 @@ export function filterChainOfThought(text: string): string {
  * Useful for debugging and multiple-choice scenarios
  */
 export function extractAllCandidates(text: string): string[] {
-	const candidates: string[] = [];
-
-	// Direct JSON-like strings
-	const jsonRegex = /\{[\s\S]*?\}|\[[\s\S]*?\]|"[^"]*"|-?\d+(?:\.\d+)?|true|false|null/g;
-	let match: RegExpExecArray | null;
-	while (true) {
-		match = jsonRegex.exec(text);
-		if (match === null) break;
-		candidates.push(match[0]);
-	}
+	const candidates: string[] = [...findBalancedJsonSlices(text)];
 
 	// Markdown code blocks
 	const codeBlockRegex = /```(?:json)?\s*\n?([\s\S]*?)```/g;
+	let match: RegExpExecArray | null;
 	while (true) {
 		match = codeBlockRegex.exec(text);
 		if (match === null) break;

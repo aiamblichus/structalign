@@ -94,6 +94,35 @@ describe("JSON Extractor", () => {
 
 		assert.deepStrictEqual(result.value, { command: "echo {“action”: “diagnostics”}" });
 	});
+
+	it("should extract outer JSON object when preamble precedes nested segments", () => {
+		const inner = {
+			description: "Agent contract",
+			keywords: ["kb", "mcp"],
+			segments: [
+				{ start: 1, end: 4, label: "Header", summary: "Intro" },
+				{ start: 5, end: 10, label: "Scopes", summary: "KB layout" },
+			],
+		};
+		const body = JSON.stringify(inner, null, 2);
+		const response = `Here is the structured map:\n\n${body}`;
+		const result = extractJson(response);
+
+		assert.deepStrictEqual(result.value, inner);
+	});
+
+	it("should prefer the largest valid JSON object when several appear in text", () => {
+		const fragment = '{"start":1,"end":1,"label":"x","summary":"y"}';
+		const full = {
+			description: "Full document",
+			keywords: ["a"],
+			segments: [{ start: 1, end: 2, label: "x", summary: "y" }],
+		};
+		const response = `${fragment}\n${JSON.stringify(full)}`;
+		const result = extractJson(response);
+
+		assert.deepStrictEqual(result.value, full);
+	});
 });
 
 describe("Type Coercer", () => {
@@ -288,6 +317,43 @@ Therefore the output JSON is:
 		assert.strictEqual(result.success, true);
 		assert.deepStrictEqual(result.value, { action: "diagnostics", file: "x.ts" });
 		assert(result.meta.fixes?.includes("normalized_unicode_quotes"));
+	});
+
+	it("should parse nested file-map JSON after a short preamble (regression)", () => {
+		const SegmentSchema = Type.Object({
+			start: Type.Integer({ minimum: 1 }),
+			end: Type.Integer({ minimum: 1 }),
+			label: Type.String(),
+			summary: Type.String(),
+			keywords: Type.Optional(Type.Array(Type.String())),
+		});
+
+		const FileSummarySchema = Type.Object({
+			description: Type.String(),
+			keywords: Type.Array(Type.String()),
+			segments: Type.Array(SegmentSchema),
+		});
+
+		const payload = {
+			description: "Agent behaviour contract",
+			keywords: ["knowledge-base", "scopes"],
+			segments: [
+				{
+					start: 1,
+					end: 4,
+					label: "Header",
+					summary: "Introduces the project.",
+					keywords: ["project"],
+				},
+			],
+		};
+
+		const response = `Here is the map:\n\n${JSON.stringify(payload, null, 2)}`;
+		const result = parseResponse(response, FileSummarySchema);
+
+		assert.strictEqual(result.success, true);
+		assert.strictEqual(result.value.description, payload.description);
+		assert.strictEqual(result.value.segments.length, 1);
 	});
 });
 

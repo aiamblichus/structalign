@@ -50,8 +50,10 @@ import { type CoercionOptions, type CoercionResult, coerceValue, validateValue }
 
 export {
 	extractAllCandidates,
+	extractBalancedJsonSlice,
 	extractJson,
 	filterChainOfThought,
+	findBalancedJsonSlices,
 	hasChainOfThought,
 } from "./json-extractor.js";
 // Re-export types and functions
