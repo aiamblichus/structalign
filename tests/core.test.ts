@@ -64,6 +64,22 @@ describe("JSON Extractor", () => {
 		assert.strictEqual(result.fromMarkdown, true);
 	});
 
+	it("should not truncate fenced JSON when string values contain nested code fences", () => {
+		const payload = {
+			answer: "ok",
+			sections: [
+				{
+					content: "Example:\n```typescript\nconst x = { a: 1 };\n```",
+				},
+			],
+		};
+		const markdown = `Here is the report:\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+		const result = extractJson(markdown);
+
+		assert.deepStrictEqual(result.value, payload);
+		assert.strictEqual(result.fromMarkdown, true);
+	});
+
 	it("should fix trailing commas", () => {
 		const malformed = '{"a": 1, "b": 2,}';
 		const result = extractJson(malformed);

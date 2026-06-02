@@ -231,8 +231,11 @@ function tryExtractFromMarkdown(
 	isDone: boolean,
 	_depth: number,
 ): ExtractionResult | null {
-	// Regex for markdown code blocks
-	const codeBlockRegex = /^(\s*)```(\w*)\s*\n?([\s\S]*?)```/gm;
+	// Regex for markdown code blocks.
+	// The closing fence must be on its own line. JSON strings can legitimately contain
+	// triple backticks (for example, when an LLM report quotes code blocks inside a
+	// string value); treating any ``` as the close would truncate the payload.
+	const codeBlockRegex = /^[ \t]*```(\w*)[ \t]*\r?\n?([\s\S]*?)^[ \t]*```[ \t]*$/gm;
 
 	const matches: Array<{ lang: string; content: string }> = [];
 	let match: RegExpExecArray | null;
@@ -241,8 +244,8 @@ function tryExtractFromMarkdown(
 		match = codeBlockRegex.exec(text);
 		if (match === null) break;
 		matches.push({
-			lang: match[2].trim().toLowerCase(),
-			content: match[3].trim(),
+			lang: match[1].trim().toLowerCase(),
+			content: match[2].trim(),
 		});
 	}
 
@@ -264,7 +267,7 @@ function tryExtractFromMarkdown(
 	if (jsonBlocks.length === 1) {
 		try {
 			const content = jsonBlocks[0].content;
-			const parsed = extractJson(content, options, isDone, _depth);
+			const parsed = extractJson(content, { ...options, allowAsString: false }, isDone, _depth);
 			return {
 				...parsed,
 				fromMarkdown: true,
@@ -634,7 +637,7 @@ export function extractAllCandidates(text: string): string[] {
 	const candidates: string[] = [...findBalancedJsonSlices(text)];
 
 	// Markdown code blocks
-	const codeBlockRegex = /```(?:json)?\s*\n?([\s\S]*?)```/g;
+	const codeBlockRegex = /^[ \t]*```(?:\w*)[ \t]*\r?\n?([\s\S]*?)^[ \t]*```[ \t]*$/gm;
 	let match: RegExpExecArray | null;
 	while (true) {
 		match = codeBlockRegex.exec(text);
